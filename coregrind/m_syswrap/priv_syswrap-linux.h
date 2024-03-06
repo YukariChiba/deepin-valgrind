@@ -322,6 +322,7 @@ DECL_TEMPLATE(linux, sys_io_uring_register);
 
 // Linux-specific (new in Linux 5.9)
 DECL_TEMPLATE(linux, sys_close_range);
+DECL_TEMPLATE(linux, sys_openat2);
 
 // Linux-specific (new in Linux 5.14)
 DECL_TEMPLATE(linux, sys_memfd_secret);
@@ -504,6 +505,13 @@ extern UInt do_syscall_clone_nanomips_linux ( Word (*fn) (void *),  /* a0 - 4 */
                                               Int*  child_tid,      /* a4 - 8 */
                                               Int*  parent_tid,     /* a5 - 9 */
                                               void* tls_ptr);       /* a6 - 10 */
+extern UInt do_syscall_clone_riscv64_linux ( Word (*fn) (void *),
+                                             void* stack,
+                                             Int   flags,
+                                             void* arg,
+                                             Int*  child_tid,
+                                             Int*  parent_tid,
+                                             void* tls_ptr);
 #endif   // __PRIV_SYSWRAP_LINUX_H
 
 /*--------------------------------------------------------------------*/

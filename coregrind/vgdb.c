@@ -498,6 +498,14 @@ void wait_for_gdb_connect(int in_port)
       XERROR(errno, "cannot create socket\n");
    }
 
+   /* allow address reuse to avoid "address already in use" errors */
+
+   int one = 1;
+   if (setsockopt(listen_gdb, SOL_SOCKET, SO_REUSEADDR,
+                  &one, sizeof(one)) < 0) {
+      XERROR(errno, "cannot enable address reuse\n");
+   }
+
     memset(&addr, 0, sizeof(addr));
 
     addr.sin_family = AF_INET;
@@ -1159,8 +1167,9 @@ void usage(void)
 "  -d  arg tells to show debug info. Multiple -d args for more debug info\n"
 "\n"
 "  -h --help shows this message\n"
+"  The GDB python code defining GDB front end valgrind commands is:\n       %s\n"
 "  To get help from the Valgrind gdbserver, use vgdb help\n"
-"\n", vgdb_prefix_default()
+"\n", vgdb_prefix_default(), VG_LIBDIR "/valgrind-monitor.py"
            );
    invoker_restrictions_msg();
 }

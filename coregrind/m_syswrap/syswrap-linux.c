@@ -310,6 +310,16 @@ static void run_a_thread_NORETURN ( Word tidW )
          : "r" (VgTs_Empty), "n" (__NR_exit), "m" (tst->os_state.exitcode)
          : "memory" , "$t4", "$a0"
       );
+#elif defined(VGP_riscv64_linux)
+      asm volatile (
+         "sw   %1, %0\n"      /* set tst->status = VgTs_Empty */
+         "li   a7, %2\n"      /* set a7 = __NR_exit */
+         "ld   a0, %3\n"      /* set a0 = tst->os_state.exitcode */
+         "ecall\n"            /* exit(tst->os_state.exitcode) */
+         : "=m" (tst->status)
+         : "r" (VgTs_Empty), "n" (__NR_exit), "m" (tst->os_state.exitcode)
+         : "a7", "a0"
+      );
 #else
 # error Unknown platform
 #endif
@@ -535,6 +545,13 @@ static SysRes clone_new_thread ( Word (*fn)(void *),
       (ML_(start_thread_NORETURN), stack, flags, ctst,
        child_tidptr, parent_tidptr, NULL);
    res = VG_ (mk_SysRes_nanomips_linux) (ret);
+#elif defined(VGP_riscv64_linux)
+   ULong a0;
+   ctst->arch.vex.guest_x10 = 0;
+   a0 = do_syscall_clone_riscv64_linux
+      (ML_(start_thread_NORETURN), stack, flags, ctst,
+       child_tidptr, parent_tidptr, NULL);
+   res = VG_(mk_SysRes_riscv64_linux)( a0 );
 #else
 # error Unknown platform
 #endif
@@ -597,6 +614,8 @@ static SysRes setup_child_tls (ThreadId ctid, Addr tlsaddr)
 #elif defined(VGP_mips32_linux) || defined(VGP_nanomips_linux)
    ctst->arch.vex.guest_ULR = tlsaddr;
    ctst->arch.vex.guest_r27 = tlsaddr;
+#elif defined(VGP_riscv64_linux)
+   ctst->arch.vex.guest_x4 = tlsaddr;
 #else
 # error Unknown platform
 #endif
@@ -755,7 +774,7 @@ static SysRes ML_(do_fork_clone) ( ThreadId tid, UInt flags,
     || defined(VGP_ppc64be_linux) || defined(VGP_ppc64le_linux)	\
     || defined(VGP_arm_linux) || defined(VGP_mips32_linux) \
     || defined(VGP_mips64_linux) || defined(VGP_arm64_linux) \
-    || defined(VGP_nanomips_linux)
+    || defined(VGP_nanomips_linux) || defined(VGP_riscv64_linux)
    res = VG_(do_syscall5)( __NR_clone, flags, 
                            (UWord)NULL, (UWord)parent_tidptr, 
                            (UWord)NULL, (UWord)child_tidptr );
@@ -823,7 +842,7 @@ PRE(sys_clone)
     || defined(VGP_ppc64be_linux) || defined(VGP_ppc64le_linux)	\
     || defined(VGP_arm_linux) || defined(VGP_mips32_linux) \
     || defined(VGP_mips64_linux) || defined(VGP_arm64_linux) \
-    || defined(VGP_nanomips_linux)
+    || defined(VGP_nanomips_linux) || defined(VGP_riscv64_linux)
 #define ARG_CHILD_TIDPTR ARG5
 #define PRA_CHILD_TIDPTR PRA5
 #define ARG_TLS          ARG4
@@ -1743,6 +1762,9 @@ static void futex_pre_helper ( ThreadId tid, SyscallArgLayout* layout,
    }
 
    *flags |= SfMayBlock;
+   if ((ARG2 & (VKI_FUTEX_PRIVATE_FLAG|VKI_FUTEX_LOCK_PI)) == (VKI_FUTEX_PRIVATE_FLAG|VKI_FUTEX_LOCK_PI)) {
+      *flags |= SfKernelRestart;
+   }
 
    switch(ARG2 & ~(VKI_FUTEX_PRIVATE_FLAG|VKI_FUTEX_CLOCK_REALTIME)) {
    case VKI_FUTEX_WAIT:
@@ -4314,9 +4336,13 @@ PRE(sys_sigaction)
       PRE_MEM_READ( "sigaction(act->sa_handler)", (Addr)&sa->ksa_handler, sizeof(sa->ksa_handler));
       PRE_MEM_READ( "sigaction(act->sa_mask)", (Addr)&sa->sa_mask, sizeof(sa->sa_mask));
       PRE_MEM_READ( "sigaction(act->sa_flags)", (Addr)&sa->sa_flags, sizeof(sa->sa_flags));
+#     if !defined(VGP_riscv64_linux)
+      /* Check the sa_restorer field. More recent Linux platforms completely
+         drop this member. */
       if (ML_(safe_to_deref)(sa,sizeof(struct vki_old_sigaction))
           && (sa->sa_flags & VKI_SA_RESTORER))
          PRE_MEM_READ( "sigaction(act->sa_restorer)", (Addr)&sa->sa_restorer, sizeof(sa->sa_restorer));
+#     endif
    }
 
    if (ARG3 != 0) {
@@ -4432,9 +4458,11 @@ PRE(sys_rt_sigaction)
       PRE_MEM_READ( "rt_sigaction(act->sa_handler)", (Addr)&sa->ksa_handler, sizeof(sa->ksa_handler));
       PRE_MEM_READ( "rt_sigaction(act->sa_mask)", (Addr)&sa->sa_mask, sizeof(sa->sa_mask));
       PRE_MEM_READ( "rt_sigaction(act->sa_flags)", (Addr)&sa->sa_flags, sizeof(sa->sa_flags));
+#     if !defined(VGP_riscv64_linux)
       if (ML_(safe_to_deref)(sa,sizeof(vki_sigaction_toK_t))
           && (sa->sa_flags & VKI_SA_RESTORER))
          PRE_MEM_READ( "rt_sigaction(act->sa_restorer)", (Addr)&sa->sa_restorer, sizeof(sa->sa_restorer));
+#     endif
    }
    if (ARG3 != 0)
       PRE_MEM_WRITE( "rt_sigaction(oldact)", ARG3, sizeof(vki_sigaction_fromK_t));
@@ -6787,7 +6815,8 @@ POST(sys_lookup_dcookie)
 #endif
 
 #if defined(VGP_amd64_linux) || defined(VGP_s390x_linux)        \
-      || defined(VGP_arm64_linux) || defined(VGP_nanomips_linux)
+      || defined(VGP_arm64_linux) || defined(VGP_nanomips_linux) \
+      || defined(VGP_riscv64_linux)
 PRE(sys_lookup_dcookie)
 {
    *flags |= SfMayBlock;
@@ -7856,6 +7885,32 @@ PRE(sys_ioctl)
       break;
    case VKI_RTC_IRQP_READ:
       PRE_MEM_WRITE( "ioctl(RTC_IRQP_READ)", ARG3, sizeof(unsigned long));
+      break;
+
+      /* Loopback control */
+   case VKI_LOOP_CTL_ADD:
+   case VKI_LOOP_CTL_REMOVE:
+   case VKI_LOOP_CTL_GET_FREE:
+      break;
+      /* Loopback device */
+   case VKI_LOOP_SET_FD:
+   case VKI_LOOP_CLR_FD:
+   case VKI_LOOP_CHANGE_FD:
+   case VKI_LOOP_SET_CAPACITY:
+   case VKI_LOOP_SET_DIRECT_IO:
+   case VKI_LOOP_SET_BLOCK_SIZE:
+      break;
+   case VKI_LOOP_SET_STATUS:
+      PRE_MEM_READ("ioctl(LOOP_SET_STATUS)", ARG3, sizeof(struct vki_loop_info));
+      break;
+   case VKI_LOOP_GET_STATUS:
+      PRE_MEM_WRITE("ioctl(LOOP_GET_STATUS)", ARG3, sizeof(struct vki_loop_info));
+      break;
+   case VKI_LOOP_SET_STATUS64:
+      PRE_MEM_READ("ioctl(LOOP_SET_STATUS64)", ARG3, sizeof(struct vki_loop_info64));
+      break;
+   case VKI_LOOP_GET_STATUS64:
+      PRE_MEM_WRITE("ioctl(LOOP_GET_STATUS64)", ARG3, sizeof(struct vki_loop_info64));
       break;
 
       /* Block devices */
@@ -10825,6 +10880,33 @@ POST(sys_ioctl)
       POST_MEM_WRITE(ARG3, sizeof(unsigned long));
       break;
 
+   /* Loopback devices */
+   case VKI_LOOP_CTL_ADD:
+   case VKI_LOOP_CTL_REMOVE:
+   case VKI_LOOP_CTL_GET_FREE:
+      break;
+      /* Loopback device */
+   case VKI_LOOP_SET_FD:
+   case VKI_LOOP_CLR_FD:
+   case VKI_LOOP_CHANGE_FD:
+   case VKI_LOOP_SET_CAPACITY:
+   case VKI_LOOP_SET_DIRECT_IO:
+   case VKI_LOOP_SET_BLOCK_SIZE:
+      break;
+   case VKI_LOOP_SET_STATUS:
+      POST_MEM_WRITE(ARG3, sizeof(struct vki_loop_info));
+      break;
+   case VKI_LOOP_GET_STATUS:
+      POST_MEM_WRITE(ARG3, sizeof(struct vki_loop_info));
+      break;
+   case VKI_LOOP_SET_STATUS64:
+      POST_MEM_WRITE(ARG3, sizeof(struct vki_loop_info64));
+      break;
+   case VKI_LOOP_GET_STATUS64:
+      POST_MEM_WRITE(ARG3, sizeof(struct vki_loop_info64));
+      break;
+
+
       /* Block devices */
    case VKI_BLKROSET:
       break;
@@ -13432,6 +13514,121 @@ POST(sys_close_range)
 	  && fd != VG_(log_output_sink).fd
 	  && fd != VG_(xml_output_sink).fd)
       ML_(record_fd_close)(fd);
+}
+
+
+#define VKI_O_DIRECTORY    00200000
+#define VKI___O_TMPFILE    020000000
+#define VKI_O_TMPFILE (VKI___O_TMPFILE | VKI_O_DIRECTORY)
+
+// long syscall(SYS_openat2, int dirfd, const char *pathname,
+//             struct open_how *how, size_t size);
+PRE(sys_openat2)
+{
+   HChar  name[30];   // large enough
+   SysRes sres;
+   struct vki_open_how * how;
+
+   PRINT("sys_openat2 ( %ld, %#" FMT_REGWORD "x(%s), %#" FMT_REGWORD "x, %ld )",
+            SARG1, ARG2, (HChar*)(Addr)ARG2, ARG3, SARG4);
+   PRE_REG_READ4(long, "openat2",
+                    int, dfd, const char *, filename, struct vki_open_how *, how, vki_size_t, size);
+
+   PRE_MEM_RASCIIZ( "openat2(filename)", ARG2 );
+   PRE_MEM_READ( "openat2(how)", ARG3, sizeof(struct vki_open_how));
+
+   /* For absolute filenames, dfd is ignored.  If dfd is AT_FDCWD,
+      filename is relative to cwd.  When comparing dfd against AT_FDCWD,
+      be sure only to compare the bottom 32 bits. */
+   if (ML_(safe_to_deref)( (void*)(Addr)ARG2, 1 )
+       && *(Char *)(Addr)ARG2 != '/'
+       && ((Int)ARG1) != ((Int)VKI_AT_FDCWD)
+       && !ML_(fd_allowed)(ARG1, "openat2", tid, False))
+      SET_STATUS_Failure( VKI_EBADF );
+
+   how = (struct vki_open_how *)ARG3;
+
+   if (how && ML_(safe_to_deref) (how, sizeof(struct vki_open_how))) {
+      if (how->vki_mode) {
+         if (!(how->vki_flags & ((vki_uint64_t)VKI_O_CREAT | VKI_O_TMPFILE))) {
+            SET_STATUS_Failure( VKI_EINVAL );
+         }
+      }
+      if (how->vki_resolve & ~((vki_uint64_t)VKI_RESOLVE_NO_XDEV |
+                            VKI_RESOLVE_NO_MAGICLINKS |
+                            VKI_RESOLVE_NO_SYMLINKS |
+                            VKI_RESOLVE_BENEATH |
+                            VKI_RESOLVE_IN_ROOT |
+                            VKI_RESOLVE_CACHED)) {
+          SET_STATUS_Failure( VKI_EINVAL );
+      }
+   }
+
+   /* Handle the case where the open is of /proc/self/cmdline or
+      /proc/<pid>/cmdline, and just give it a copy of the fd for the
+      fake file we cooked up at startup (in m_main).  Also, seek the
+      cloned fd back to the start. */
+
+   VG_(sprintf)(name, "/proc/%d/cmdline", VG_(getpid)());
+   if (ML_(safe_to_deref)( (void*)(Addr)ARG2, 1 )
+       && (VG_(strcmp)((HChar *)(Addr)ARG2, name) == 0
+           || VG_(strcmp)((HChar *)(Addr)ARG2, "/proc/self/cmdline") == 0)) {
+      sres = VG_(dup)( VG_(cl_cmdline_fd) );
+      SET_STATUS_from_SysRes( sres );
+      if (!sr_isError(sres)) {
+         OffT off = VG_(lseek)( sr_Res(sres), 0, VKI_SEEK_SET );
+         if (off < 0)
+            SET_STATUS_Failure( VKI_EMFILE );
+      }
+      return;
+   }
+
+   /* Do the same for /proc/self/auxv or /proc/<pid>/auxv case. */
+
+   VG_(sprintf)(name, "/proc/%d/auxv", VG_(getpid)());
+   if (ML_(safe_to_deref)( (void*)(Addr)ARG2, 1 )
+       && (VG_(strcmp)((HChar *)(Addr)ARG2, name) == 0
+           || VG_(strcmp)((HChar *)(Addr)ARG2, "/proc/self/auxv") == 0)) {
+      sres = VG_(dup)( VG_(cl_auxv_fd) );
+      SET_STATUS_from_SysRes( sres );
+      if (!sr_isError(sres)) {
+         OffT off = VG_(lseek)( sr_Res(sres), 0, VKI_SEEK_SET );
+         if (off < 0)
+            SET_STATUS_Failure( VKI_EMFILE );
+      }
+      return;
+   }
+
+   /* And for /proc/self/exe or /proc/<pid>/exe case. */
+
+   VG_(sprintf)(name, "/proc/%d/exe", VG_(getpid)());
+   if (ML_(safe_to_deref)( (void*)(Addr)ARG2, 1 )
+       && (VG_(strcmp)((HChar *)(Addr)ARG2, name) == 0
+           || VG_(strcmp)((HChar *)(Addr)ARG2, "/proc/self/exe") == 0)) {
+      sres = VG_(dup)( VG_(cl_exec_fd) );
+      SET_STATUS_from_SysRes( sres );
+      if (!sr_isError(sres)) {
+         OffT off = VG_(lseek)( sr_Res(sres), 0, VKI_SEEK_SET );
+         if (off < 0)
+            SET_STATUS_Failure( VKI_EMFILE );
+      }
+      return;
+   }
+
+   /* Otherwise handle normally */
+   *flags |= SfMayBlock;
+}
+
+POST(sys_openat2)
+{
+   vg_assert(SUCCESS);
+   if (!ML_(fd_allowed)(RES, "openat2", tid, True)) {
+      VG_(close)(RES);
+      SET_STATUS_Failure( VKI_EMFILE );
+   } else {
+      if (VG_(clo_track_fds))
+         ML_(record_fd_open_with_given_name)(tid, RES, (HChar*)(Addr)ARG2);
+   }
 }
 
 #undef PRE

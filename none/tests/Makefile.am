@@ -35,6 +35,9 @@ endif
 if VGCONF_ARCHS_INCLUDE_NANOMIPS
 SUBDIRS += nanomips
 endif
+if VGCONF_ARCHS_INCLUDE_RISCV64
+SUBDIRS += riscv64
+endif
 
 
 # OS-specific tests
@@ -75,8 +78,9 @@ SUBDIRS += x86-freebsd
 endif
 
 DIST_SUBDIRS = x86 amd64 ppc32 ppc64 arm arm64 s390x mips32 mips64 nanomips \
-               linux darwin solaris freebsd amd64-linux x86-linux amd64-darwin \
-               x86-darwin amd64-solaris x86-solaris x86-freebsd scripts .
+               riscv64 linux darwin solaris freebsd amd64-linux x86-linux \
+               amd64-darwin x86-darwin amd64-solaris x86-solaris x86-freebsd \
+               scripts .
 
 dist_noinst_SCRIPTS = \
 	filter_cmdline0 \
@@ -111,6 +115,11 @@ EXTRA_DIST = \
 	cmdline4.stderr.exp cmdline4.vgtest \
 	cmdline5.stderr.exp cmdline5.vgtest \
 	cmdline6.stderr.exp cmdline6.vgtest \
+	cmdline7.stderr.exp cmdline7.vgtest \
+	cmdline8.stderr.exp cmdline8.vgtest \
+	cmdline9.stderr.exp cmdline9.vgtest \
+	cmdline10.stderr.exp cmdline10.vgtest \
+	cmdline11.stderr.exp cmdline11.vgtest \
 	cmd-with-special.stderr.exp cmd-with-special.vgtest \
 	coolo_sigaction.stderr.exp \
 	coolo_sigaction.stdout.exp coolo_sigaction.vgtest \
@@ -320,6 +329,11 @@ libvex_test_CFLAGS      = $(AM_CFLAGS) @FLAG_FSANITIZE@
 libvex_test_LDADD       = ../../VEX/libvex-@VGCONF_ARCH_PRI@-@VGCONF_OS@.a \
 			   @LIB_UBSAN@
 libvexmultiarch_test_CFLAGS= $(AM_CFLAGS) @FLAG_FSANITIZE@
+if VGCONF_ARCHS_INCLUDE_RISCV64
+# Disable RISC-V linker relaxation, it takes GNU ld 2.39 tens of minutes to sort
+# it through on this large test.
+libvexmultiarch_test_LDFLAGS = -Wl,--no-relax
+endif
 libvexmultiarch_test_LDADD = \
 	../../VEX/libvexmultiarch-@VGCONF_ARCH_PRI@-@VGCONF_OS@.a \
 	../../VEX/libvex-@VGCONF_ARCH_PRI@-@VGCONF_OS@.a @LIB_UBSAN@
@@ -364,6 +378,7 @@ thread_exits_LDADD	= -lpthread
 threaded_fork_LDADD	= -lpthread
 threadederrno_CFLAGS	= $(AM_CFLAGS)
 threadederrno_LDADD	= -lpthread
+timestamp_CFLAGS	= @FLAG_W_NO_USE_AFTER_FREE@
 tls_SOURCES		= tls.c tls2.c
 tls_DEPENDENCIES	= tls.so tls2.so
 tls_LDFLAGS		= -Wl,-rpath,$(abs_top_builddir)/none/tests

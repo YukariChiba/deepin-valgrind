@@ -405,6 +405,8 @@ void VG_(redir_notify_new_DebugInfo)( const DebugInfo* newdi )
    const HChar* const pthread_soname = "libpthread.so.0";
    const HChar* const pthread_stack_cache_actsize_varname
       = "stack_cache_actsize";
+   const HChar* const libc_soname = "libc.so.6";
+   const HChar* const libc_gnu_get_libc_version_funcname = "gnu_get_libc_version";
 #if defined(VGO_solaris)
    Bool         vg_vfork_fildes_var_search = False;
    const HChar* const vg_preload_core_soname = "vgpreload_core.so.0";
@@ -506,7 +508,8 @@ void VG_(redir_notify_new_DebugInfo)( const DebugInfo* newdi )
 
    dehacktivate_pthread_stack_cache_var_search = 
       SimHintiS(SimHint_no_nptl_pthread_stackcache, VG_(clo_sim_hints))
-      && 0 == VG_(strcmp)(newdi_soname, pthread_soname);
+      && (0 == VG_(strcmp)(newdi_soname, pthread_soname) ||
+          0 == VG_(strcmp)(newdi_soname, libc_soname));
 
 #if defined(VGO_solaris)
    vg_vfork_fildes_var_search =
@@ -529,6 +532,20 @@ void VG_(redir_notify_new_DebugInfo)( const DebugInfo* newdi )
                                      &demangled_sopatt,
                                      &demangled_fnpatt,
                                      &isWrap, &becTag, &becPrio );
+
+         if (isText && dehacktivate_pthread_stack_cache_var_search) {
+             if (0 == VG_(strcmp)(*names, libc_gnu_get_libc_version_funcname)) {
+                 if ( VG_(clo_verbosity) > 1 ) {
+                    VG_(message)( Vg_DebugMsg,
+                                  "deactivate nptl pthread stackcache via tunable:"
+                                  " found symbol %s at addr %p\n",
+                                  *names, (void*) sym_avmas.main);
+                 }
+                 VG_(client__gnu_get_libc_version_addr) = (client__gnu_get_libc_version_type) sym_avmas.main;
+                 dehacktivate_pthread_stack_cache_var_search = False;
+             }
+         }
+
          /* ignore data symbols */
          if (!isText) {
             /* But search for dehacktivate stack cache var if needed. */
@@ -1212,6 +1229,7 @@ Bool VG_(is_soname_ld_so) (const HChar *soname)
    if (VG_STREQ(soname, VG_U_LD_LINUX_AARCH64_SO_1)) return True;
    if (VG_STREQ(soname, VG_U_LD_LINUX_ARMHF_SO_3))   return True;
    if (VG_STREQ(soname, VG_U_LD_LINUX_MIPSN8_S0_1))  return True;
+   if (VG_STREQ(soname, VG_U_LD_LINUX_RISCV64_SO_1)) return True;
 #  elif defined(VGO_freebsd)
    if (VG_STREQ(soname, VG_U_LD_ELF_SO_1))   return True;
    if (VG_STREQ(soname, VG_U_LD_ELF32_SO_1))   return True;
@@ -1647,6 +1665,20 @@ void VG_(redir_initialise) ( void )
       add_hardwired_spec(
          "ld.so.1", "index",
          (Addr)&VG_(nanomips_linux_REDIR_FOR_index),
+         complain_about_stripped_glibc_ldso
+      );
+   }
+
+#  elif defined(VGP_riscv64_linux)
+   if (0==VG_(strcmp)("Memcheck", VG_(details).name)) {
+      add_hardwired_spec(
+         "ld-linux-riscv64-lp64d.so.1", "strlen",
+         (Addr)&VG_(riscv64_linux_REDIR_FOR_strlen),
+         complain_about_stripped_glibc_ldso
+      );
+      add_hardwired_spec(
+         "ld-linux-riscv64-lp64d.so.1", "index",
+         (Addr)&VG_(riscv64_linux_REDIR_FOR_index),
          complain_about_stripped_glibc_ldso
       );
    }

@@ -150,6 +150,11 @@ Bool   VG_(clo_debug_dump_frames) = False;
 Bool   VG_(clo_trace_redir)    = False;
 enum FairSchedType
        VG_(clo_fair_sched)     = disable_fair_sched;
+/* VG_(clo_scheduling_quantum) defines the thread-scheduling timeslice,
+   in terms of the number of basic blocks we attempt to run each thread for.
+   Smaller values give finer interleaving but much increased scheduling
+   overheads. */
+Word   VG_(clo_scheduling_quantum) = 100000;
 Bool   VG_(clo_trace_sched)    = False;
 Bool   VG_(clo_profile_heap)   = False;
 UInt   VG_(clo_progress_interval) = 0; /* in seconds, 1 .. 3600,
@@ -197,7 +202,8 @@ UInt   VG_(clo_unw_stack_scan_frames) = 5;
 VgSmc VG_(clo_smc_check) = Vg_SmcAllNonFile;
 #elif defined(VGA_ppc32) || defined(VGA_ppc64be) || defined(VGA_ppc64le) \
       || defined(VGA_arm) || defined(VGA_arm64) \
-      || defined(VGA_mips32) || defined(VGA_mips64) || defined(VGA_nanomips)
+      || defined(VGA_mips32) || defined(VGA_mips64) || defined(VGA_nanomips) \
+      || defined(VGA_riscv64)
 VgSmc VG_(clo_smc_check) = Vg_SmcStack;
 #else
 #  error "Unknown arch"

@@ -148,6 +148,11 @@
    do {                                                                      \
       __asm__ __volatile__ ("movl $0, %ecx\n\t"); \
    } while (0)
+#elif defined(__riscv)
+#define CLEAR_CALLER_SAVED_REGS \
+  do { \
+    __asm__ __volatile__( "li a0, 0" : : :/*trash*/"a0" ); \
+  } while (0)
 #else
 #define CLEAR_CALLER_SAVED_REGS  /*nothing*/
 #endif

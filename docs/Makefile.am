@@ -46,6 +46,7 @@ EXTRA_DIST = \
 	internals/arm_thumb_notes_gdbserver.txt \
 	internals/avx-notes.txt \
 	internals/BIG_APP_NOTES.txt \
+	internals/Darwin-debug.txt \
 	internals/Darwin-notes.txt \
 	internals/SPEC-notes.txt \
 	internals/directory-structure.txt \
@@ -62,6 +63,7 @@ EXTRA_DIST = \
 	internals/porting-to-ARM.txt \
 	internals/qemu-aarch64-linux-HOWTO.txt \
 	internals/qemu-mips64-linux-HOWTO.txt \
+	internals/qemu-riscv64-linux-HOWTO.txt \
 	internals/register-uses.txt \
 	internals/release-HOWTO.txt \
 	internals/segments-seginfos.txt \

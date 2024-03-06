@@ -15,10 +15,10 @@
 # Also set the (expected/last) release date here.
 # Do not forget to rerun ./autogen.sh
 m4_define([v_major_ver], [3])
-m4_define([v_minor_ver], [20])
+m4_define([v_minor_ver], [21])
 m4_define([v_micro_ver], [0])
-m4_define([v_suffix_ver], [])
-m4_define([v_rel_date], ["24 Oct 2022"])
+m4_define([v_suffix_ver], [GIT])
+m4_define([v_rel_date], ["?? Apr 2023"])
 m4_define([v_version],
 	  m4_if(v_suffix_ver, [],
 		[v_major_ver.v_minor_ver.v_micro_ver],
@@ -50,8 +50,11 @@ CXXFLAGS="$CXXFLAGS"
 #----------------------------------------------------------------------------
 
 AC_PROG_LN_S
-AC_PROG_CC
-AM_PROG_CC_C_O
+m4_version_prereq([2.70], [AC_PROG_CC], [AC_PROG_CC_C99])
+# Make sure we can compile in C99 mode.
+if test "$ac_cv_prog_cc_c99" = "no"; then
+    AC_MSG_ERROR([Valgrind relies on a C compiler supporting C99])
+fi
 AC_PROG_CPP
 AC_PROG_CXX
 # AC_PROG_OBJC apparently causes problems on older Linux distros (eg. with
@@ -81,6 +84,11 @@ m4_ifndef([AC_PROG_SED],
                     [AC_ARG_VAR([SED])
                      AC_CHECK_PROGS([SED],[gsed sed])])])
 AC_PROG_SED
+
+AC_DEFUN([AC_PROG_SHA256SUM],
+          [AC_ARG_VAR([SHA256SUM])
+          AC_CHECK_PROGS([SHA256SUM],[gsha256sum sha256sum])])
+AC_PROG_SHA256SUM
 
 # If no AR variable was specified, look up the name of the archiver. Otherwise
 # do not touch the AR variable.
@@ -135,12 +143,6 @@ else
     DIFF="diff"
 fi
 rm $tmpfile
-
-# Make sure we can compile in C99 mode.
-AC_PROG_CC_C99
-if test "$ac_cv_prog_cc_c99" = "no"; then
-    AC_MSG_ERROR([Valgrind relies on a C compiler supporting C99])
-fi
 
 # We don't want gcc < 3.0
 AC_MSG_CHECKING([for a supported version of gcc])
@@ -313,6 +315,11 @@ case "${host_cpu}" in
         AC_MSG_RESULT([ok (${host_cpu})])
         ARCH_MAX="nanomips"
         ;;
+
+     riscv64)
+       AC_MSG_RESULT([ok (${host_cpu})])
+       ARCH_MAX="riscv64"
+       ;;
 
      *) 
 	AC_MSG_RESULT([no (${host_cpu})])
@@ -938,6 +945,17 @@ case "$ARCH_MAX-$VGCONF_OS" in
         valt_load_address_sec_inner="0xUNSET"
         AC_MSG_RESULT([ok (${ARCH_MAX}-${VGCONF_OS})])
         ;;
+     riscv64-linux)
+        VGCONF_ARCH_PRI="riscv64"
+        VGCONF_ARCH_SEC=""
+        VGCONF_PLATFORM_PRI_CAPS="RISCV64_LINUX"
+        VGCONF_PLATFORM_SEC_CAPS=""
+        valt_load_address_pri_norml="0x58000000"
+        valt_load_address_pri_inner="0x38000000"
+        valt_load_address_sec_norml="0xUNSET"
+        valt_load_address_sec_inner="0xUNSET"
+        AC_MSG_RESULT([ok (${ARCH_MAX}-${VGCONF_OS})])
+        ;;
      x86-solaris)
         VGCONF_ARCH_PRI="x86"
         VGCONF_ARCH_SEC=""
@@ -1030,6 +1048,8 @@ AM_CONDITIONAL(VGCONF_ARCHS_INCLUDE_MIPS64,
                test x$VGCONF_PLATFORM_PRI_CAPS = xMIPS64_LINUX ) 
 AM_CONDITIONAL(VGCONF_ARCHS_INCLUDE_NANOMIPS,
                test x$VGCONF_PLATFORM_PRI_CAPS = xNANOMIPS_LINUX )
+AM_CONDITIONAL(VGCONF_ARCHS_INCLUDE_RISCV64,
+               test x$VGCONF_PLATFORM_PRI_CAPS = xRISCV64_LINUX )
 
 # Set up VGCONF_PLATFORMS_INCLUDE_<platform>.  Either one or two of these
 # become defined.
@@ -1060,6 +1080,8 @@ AM_CONDITIONAL(VGCONF_PLATFORMS_INCLUDE_MIPS64_LINUX,
                test x$VGCONF_PLATFORM_PRI_CAPS = xMIPS64_LINUX)
 AM_CONDITIONAL(VGCONF_PLATFORMS_INCLUDE_NANOMIPS_LINUX,
                test x$VGCONF_PLATFORM_PRI_CAPS = xNANOMIPS_LINUX)
+AM_CONDITIONAL(VGCONF_PLATFORMS_INCLUDE_RISCV64_LINUX,
+               test x$VGCONF_PLATFORM_PRI_CAPS = xRISCV64_LINUX)
 AM_CONDITIONAL(VGCONF_PLATFORMS_INCLUDE_X86_FREEBSD,
                test x$VGCONF_PLATFORM_PRI_CAPS = xX86_FREEBSD \
                  -o x$VGCONF_PLATFORM_SEC_CAPS = xX86_FREEBSD)
@@ -1091,7 +1113,8 @@ AM_CONDITIONAL(VGCONF_OS_IS_LINUX,
                  -o x$VGCONF_PLATFORM_PRI_CAPS = xS390X_LINUX \
                  -o x$VGCONF_PLATFORM_PRI_CAPS = xMIPS32_LINUX \
                  -o x$VGCONF_PLATFORM_PRI_CAPS = xMIPS64_LINUX \
-                 -o x$VGCONF_PLATFORM_PRI_CAPS = xNANOMIPS_LINUX)
+                 -o x$VGCONF_PLATFORM_PRI_CAPS = xNANOMIPS_LINUX \
+                 -o x$VGCONF_PLATFORM_PRI_CAPS = xRISCV64_LINUX)
 AM_CONDITIONAL(VGCONF_OS_IS_FREEBSD,
                test x$VGCONF_PLATFORM_PRI_CAPS = xX86_FREEBSD \
                  -o x$VGCONF_PLATFORM_PRI_CAPS = xAMD64_FREEBSD)
@@ -2009,6 +2032,26 @@ AC_MSG_RESULT([no])
 # clang 3.3 cannot process <thread> from e.g.
 # gcc (Ubuntu/Linaro 4.6.3-1ubuntu5) 4.6.3
 
+AC_MSG_CHECKING([that C++ compiler can compile C++17 code])
+AC_LANG(C++)
+safe_CXXFLAGS=$CXXFLAGS
+CXXFLAGS=-std=c++17
+
+AC_COMPILE_IFELSE([AC_LANG_SOURCE([
+int x;
+])],
+[
+ac_have_cxx_17=yes
+AC_MSG_RESULT([yes])
+], [
+ac_have_cxx_17=no
+AC_MSG_RESULT([no])
+])
+CXXFLAGS=$safe_CXXFLAGS
+AC_LANG(C)
+
+AM_CONDITIONAL(HAVE_CXX17, test x$ac_have_cxx_17 = xyes)
+
 AC_MSG_CHECKING([that C++ compiler can include <thread> header file])
 AC_LANG(C++)
 safe_CXXFLAGS=$CXXFLAGS
@@ -2502,6 +2545,20 @@ AC_DEFUN([AC_GCC_WARNING_SUBST_NO],[
   CFLAGS=$safe_CFLAGS
 ])
 
+# A variation of the above for arguments that
+# take a value
+AC_DEFUN([AC_GCC_WARNING_SUBST_NO_VAL],[
+  AC_MSG_CHECKING([if gcc accepts -W$1=$2])
+  safe_CFLAGS=$CFLAGS
+  CFLAGS="-W$1=$2 -Werror"
+  AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[]], [[;]])], [
+  AC_SUBST([$3], [-Wno-$1])
+  AC_MSG_RESULT([yes])], [
+  AC_SUBST([$3], [])
+  AC_MSG_RESULT([no])])
+  CFLAGS=$safe_CFLAGS
+])
+
 # Convenience function. Like AC_GCC_WARNING_SUBST_NO, except it substitutes
 # -W$1  (instead of -Wno-$1).
 AC_DEFUN([AC_GCC_WARNING_SUBST],[
@@ -2521,11 +2578,27 @@ AC_GCC_WARNING_SUBST_NO([nonnull], [FLAG_W_NO_NONNULL])
 AC_GCC_WARNING_SUBST_NO([overflow], [FLAG_W_NO_OVERFLOW])
 AC_GCC_WARNING_SUBST_NO([pointer-sign], [FLAG_W_NO_POINTER_SIGN])
 AC_GCC_WARNING_SUBST_NO([uninitialized], [FLAG_W_NO_UNINITIALIZED])
+AC_GCC_WARNING_SUBST_NO([maybe-uninitialized], [FLAG_W_NO_MAYBE_UNINITIALIZED])
 AC_GCC_WARNING_SUBST_NO([unused-function], [FLAG_W_NO_UNUSED_FUNCTION])
 AC_GCC_WARNING_SUBST_NO([static-local-in-inline], [FLAG_W_NO_STATIC_LOCAL_IN_INLINE])
 AC_GCC_WARNING_SUBST_NO([mismatched-new-delete], [FLAG_W_NO_MISMATCHED_NEW_DELETE])
 AC_GCC_WARNING_SUBST_NO([infinite-recursion], [FLAG_W_NO_INFINITE_RECURSION])
 AC_GCC_WARNING_SUBST_NO([expansion-to-defined], [FLAG_W_NO_EXPANSION_TO_DEFINED])
+AC_GCC_WARNING_SUBST_NO([unused-but-set-variable], [FLAG_W_NO_UNUSED_BUT_SET_VARIABLE])
+AC_GCC_WARNING_SUBST_NO([non-power-of-two-alignment], [FLAG_W_NO_NON_POWER_OF_TWO_ALIGNMENT])
+AC_GCC_WARNING_SUBST_NO([sign-compare], [FLAG_W_NO_SIGN_COMPARE])
+AC_GCC_WARNING_SUBST_NO([stringop-overflow], [FLAG_W_NO_STRINGOP_OVERFLOW])
+AC_GCC_WARNING_SUBST_NO([stringop-overread], [FLAG_W_NO_STRINGOP_OVERREAD])
+AC_GCC_WARNING_SUBST_NO([stringop-truncation], [FLAG_W_NO_STRINGOP_TRUNCATION])
+AC_GCC_WARNING_SUBST_NO([format-overflow], [FLAG_W_NO_FORMAT_OVERFLOW])
+AC_GCC_WARNING_SUBST_NO([use-after-free], [FLAG_W_NO_USE_AFTER_FREE])
+AC_GCC_WARNING_SUBST_NO([free-nonheap-object], [FLAG_W_NO_FREE_NONHEAP_OBJECT])
+AC_GCC_WARNING_SUBST_NO([fortify-source], [FLAG_W_NO_FORTIFY_SOURCE])
+AC_GCC_WARNING_SUBST_NO([builtin-memcpy-chk-size], [FLAG_W_NO_BUILTIN_MEMCPY_CHK_SIZE])
+AC_GCC_WARNING_SUBST_NO([incompatible-pointer-types-discards-qualifiers], [FLAG_W_NO_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS])
+AC_GCC_WARNING_SUBST_NO([suspicious-bzero], [FLAG_W_NO_SUSPICIOUS_BZERO])
+
+AC_GCC_WARNING_SUBST_NO_VAL([alloc-size-larger-than], [1677216], [FLAG_W_NO_ALLOC_SIZE_LARGER_THAN])
 
 AC_GCC_WARNING_SUBST([write-strings], [FLAG_W_WRITE_STRINGS])
 AC_GCC_WARNING_SUBST([empty-body], [FLAG_W_EMPTY_BODY])
@@ -3410,9 +3483,9 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[]], [[
     asm ("bndmov %bnd0,(%rsp)");
     asm ("bndldx 3(%rbx,%rdx), %bnd2");
     asm ("bnd call foo\n"
-          bnd jmp  end\n"
-          foo: bnd ret\n"
-          end: nop");
+         "bnd jmp  end\n"
+         "foo: bnd ret\n"
+         "end: nop");
   } while (0)
 ]])], [
 ac_have_as_mpx=yes
@@ -4853,7 +4926,8 @@ elif test x$VGCONF_PLATFORM_PRI_CAPS = xAMD64_LINUX \
        -o x$VGCONF_PLATFORM_PRI_CAPS = xPPC64_LINUX \
        -o x$VGCONF_PLATFORM_PRI_CAPS = xARM64_LINUX \
        -o x$VGCONF_PLATFORM_PRI_CAPS = xMIPS64_LINUX \
-       -o x$VGCONF_PLATFORM_PRI_CAPS = xS390X_LINUX ; then
+       -o x$VGCONF_PLATFORM_PRI_CAPS = xS390X_LINUX \
+       -o x$VGCONF_PLATFORM_PRI_CAPS = xRISCV64_LINUX ; then
   mflag_primary=$FLAG_M64
 elif test x$VGCONF_PLATFORM_PRI_CAPS = xX86_DARWIN ; then
   mflag_primary="$FLAG_M32 -arch i386"
@@ -5199,6 +5273,21 @@ fi
 AM_CONDITIONAL([HAVE_BUILTIN_ATOMIC64],
                [test x$ac_have_builtin_atomic64 = xyes])
 
+               
+AC_MSG_CHECKING([if platform has openat2 syscall])
+
+AC_LINK_IFELSE([AC_LANG_PROGRAM([[
+  #include <sys/syscall.h>
+]], [[
+  return __NR_openat2
+]])], [
+  ac_have_openat2=yes
+], [
+  ac_have_openat2=no
+])
+
+AM_CONDITIONAL([HAVE_OPENAT2],
+               [test x$ac_have_openat2 = xyes])
 
 # does g++ have built-in functions for atomic memory access ?
 AC_MSG_CHECKING([if g++ supports __sync_add_and_fetch])
@@ -5328,6 +5417,7 @@ AC_CONFIG_FILES([
    memcheck/tests/amd64-linux/Makefile
    memcheck/tests/arm64-linux/Makefile
    memcheck/tests/x86-linux/Makefile
+   memcheck/tests/riscv64-linux/Makefile
    memcheck/tests/amd64-solaris/Makefile
    memcheck/tests/x86-solaris/Makefile
    memcheck/tests/amd64-freebsd/Makefile
@@ -5343,6 +5433,7 @@ AC_CONFIG_FILES([
    cachegrind/tests/x86/Makefile
    cachegrind/cg_annotate
    cachegrind/cg_diff
+   cachegrind/cg_merge
    callgrind/Makefile
    callgrind/callgrind_annotate
    callgrind/callgrind_control
@@ -5372,6 +5463,7 @@ AC_CONFIG_FILES([
    none/tests/mips32/Makefile
    none/tests/mips64/Makefile
    none/tests/nanomips/Makefile
+   none/tests/riscv64/Makefile
    none/tests/linux/Makefile
    none/tests/darwin/Makefile
    none/tests/solaris/Makefile
